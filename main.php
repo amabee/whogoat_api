@@ -50,28 +50,31 @@ class Main
                         posts.created_at, 
                         posts.update_at, 
                         users.username,
-                        COALESCE(COUNT(CASE 
-                                        WHEN reaction_type <> '' AND reaction_type IS NOT NULL 
-                                        THEN 1 
-                                        ELSE NULL 
-                                    END), 0) AS total_reactions
+                        users.image,
+                        COALESCE(COUNT(DISTINCT CASE 
+                                    WHEN reaction_type <> '' AND reaction_type IS NOT NULL 
+                                    THEN reactions.reaction_type 
+                                    ELSE NULL 
+                                END), 0) AS total_reactions,
+                        COALESCE(COUNT(DISTINCT comments.comment_id), 0) AS total_comments
                     FROM 
                         posts
                     INNER JOIN 
                         users ON posts.user_id = users.user_id
                     LEFT JOIN 
                         reactions ON posts.post_id = reactions.post_id
+                    LEFT JOIN 
+                        comments ON posts.post_id = comments.post_id
                     GROUP BY 
                         posts.post_id, 
                         posts.user_id, 
                         posts.post_content, 
                         posts.created_at, 
                         posts.update_at, 
-                        users.firstname
+                        users.username
                     ORDER BY 
                         posts.created_at DESC
                     LIMIT 0, 30
-
                     ";
 
             $stmt = $this->conn->prepare($sql);
@@ -182,11 +185,57 @@ class Main
         $json = json_decode($json, true);
 
         try {
-            $sql = "SELECT * FROM comments WHERE post_id = :post_id";
+            $sql = "SELECT 
+                    comments.*, 
+                    users.username, 
+                    users.image,
+                    COALESCE(COUNT(DISTINCT CASE 
+                        WHEN comment_reaction.reaction_type <> '' AND comment_reaction.reaction_type IS NOT NULL 
+                        THEN comment_reaction.reaction_type 
+                        ELSE NULL 
+                    END), 0) AS total_reactions,
+                    COALESCE(GROUP_CONCAT(DISTINCT CONCAT(comment_reaction.reaction_type, ':', comment_reaction.user_id) SEPARATOR ', '), '') AS reactions
+                FROM 
+                    comments
+                JOIN 
+                    users ON comments.user_id = users.user_id
+                LEFT JOIN 
+                    comment_reaction ON comments.comment_id = comment_reaction.comment_id
+                WHERE 
+                    comments.post_id = :post_id
+                GROUP BY 
+                    comments.comment_id, 
+                    users.username, 
+                    users.image
+                ORDER BY 
+                    comments.commented_at DESC";
+
             $stmt = $this->conn->prepare($sql);
             $stmt->bindParam(":post_id", $json["post_id"]);
             $stmt->execute();
             return json_encode(array("success" => $stmt->fetchAll(PDO::FETCH_ASSOC)));
+        } catch (Exception $e) {
+            return json_encode(array("error" => $e->getMessage()));
+        }
+    }
+
+    public function reactToComment($json)
+    {
+        $json = json_decode($json, true);
+
+        try {
+            $sql = "INSERT INTO `comment_reaction`( `comment_id`, `user_id`, `reaction_type`, `reacted_at`)
+                     VALUES (:comment_id, :user_id, :reaction, NOW())";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bindParam(":comment_id", $json["comment_id"]);
+            $stmt->bindParam(":user_id", $json["user_id"]);
+            $stmt->bindParam(":reaction", $json["reaction"]);
+
+            if ($stmt->execute()) {
+                return json_encode(array("success" => true));
+            } else {
+                return json_encode(array("error" => $stmt->errorInfo()));
+            }
         } catch (Exception $e) {
             return json_encode(array("error" => $e->getMessage()));
         }
@@ -224,6 +273,10 @@ if ($_SERVER["REQUEST_METHOD"] == "GET" || $_SERVER["REQUEST_METHOD"] == "POST")
 
             case 'getComments':
                 echo $main_api->getComments($json);
+                break;
+
+            case 'reactToComment':
+                echo $main_api->reactToComment($json);
                 break;
 
             default:
