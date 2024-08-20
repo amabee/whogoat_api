@@ -155,6 +155,43 @@ class Main
         }
     }
 
+    public function postComment($json)
+    {
+        $json = json_decode($json, true);
+
+        try {
+            $sql = "INSERT INTO `comments`(`user_id`, `post_id`, `comment_content`, `commented_at`) 
+                    VALUES (:user_id, :post_id, :comment, NOW())";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bindParam(":user_id", $json["user_id"]);
+            $stmt->bindParam(":post_id", $json["post_id"]);
+            $stmt->bindParam(":comment", $json["comment"], PDO::PARAM_STR);
+
+            if ($stmt->execute()) {
+                return json_encode(array("success" => true));
+            } else {
+                return json_encode(array("error" => $stmt->errorInfo()));
+            }
+        } catch (Exception $e) {
+            return json_encode(array("error" => $e->getMessage()));
+        }
+    }
+
+    public function getComments($json)
+    {
+        $json = json_decode($json, true);
+
+        try {
+            $sql = "SELECT * FROM comments WHERE post_id = :post_id";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bindParam(":post_id", $json["post_id"]);
+            $stmt->execute();
+            return json_encode(array("success" => $stmt->fetchAll(PDO::FETCH_ASSOC)));
+        } catch (Exception $e) {
+            return json_encode(array("error" => $e->getMessage()));
+        }
+    }
+
 
 }
 
@@ -179,6 +216,14 @@ if ($_SERVER["REQUEST_METHOD"] == "GET" || $_SERVER["REQUEST_METHOD"] == "POST")
 
             case 'getReactions':
                 echo $main_api->getReactions();
+                break;
+
+            case 'postComment':
+                echo $main_api->postComment($json);
+                break;
+
+            case 'getComments':
+                echo $main_api->getComments($json);
                 break;
 
             default:
